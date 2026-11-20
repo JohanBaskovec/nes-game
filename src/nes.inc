@@ -1,0 +1,60 @@
+; Registres matériels NES et MMC3.
+
+PPUCTRL   = $2000
+PPUMASK   = $2001
+PPUSTATUS = $2002
+OAMADDR   = $2003
+OAMDATA   = $2004
+PPUSCROLL = $2005
+PPUADDR   = $2006
+PPUDATA   = $2007
+
+SQ1_VOL   = $4000
+SQ1_SWEEP = $4001
+SQ1_LO    = $4002
+SQ1_HI    = $4003
+SQ2_VOL   = $4004
+SQ2_SWEEP = $4005
+SQ2_LO    = $4006
+SQ2_HI    = $4007
+TRI_LINEAR = $4008
+TRI_LO    = $400A
+TRI_HI    = $400B
+NOISE_VOL = $400C
+NOISE_LO  = $400E
+NOISE_HI  = $400F
+DMC_FREQ  = $4010
+DMC_RAW   = $4011
+DMC_START = $4012
+DMC_LEN   = $4013
+OAMDMA    = $4014
+SND_CHN   = $4015
+JOY1      = $4016
+JOY2      = $4017
+
+; MMC3
+MMC3_BANK_SELECT = $8000
+MMC3_BANK_DATA   = $8001
+MMC3_MIRRORING   = $A000
+MMC3_PRG_RAM     = $A001
+MMC3_IRQ_LATCH   = $C000
+MMC3_IRQ_RELOAD  = $C001
+MMC3_IRQ_DISABLE = $E000
+MMC3_IRQ_ENABLE  = $E001
+
+; Manette
+BTN_A      = $80
+BTN_B      = $40
+BTN_SELECT = $20
+BTN_START  = $10
+BTN_UP     = $08
+BTN_DOWN   = $04
+BTN_LEFT   = $02
+BTN_RIGHT  = $01
+
+; PPUCTRL : NMI active, sprites 8x16, fond en $0000
+CTRL_BASE  = %10100000
+CTRL_INC32 = %00000100
+; PPUMASK : fond + sprites, 8 pixels de gauche masqués (cache les apparitions
+; de sprites au bord gauche pendant le défilement)
+MASK_ON    = %00011000

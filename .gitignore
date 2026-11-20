@@ -1,0 +1,4 @@
+build/
+tools/emu/node_modules/
+tools/emu/out/
+__pycache__/
