@@ -102,6 +102,14 @@ goto_game:
 	sta vbuf
 	lda #1
 	sta hud_split
+	lda #CHR_FONT           ; HUD : police ; terrain : décor
+	sta chr_top
+	lda #CHR_LEVEL_LO
+	sta chr_bottom
+	lda #CHR_LEVEL_HI
+	sta chr_r1
+	lda #IRQ_LINE
+	sta split_line
 	lda #ST_GAME
 	sta state
 	lda #MUS_LEVEL
@@ -523,9 +531,19 @@ hud_combo_direct:
 	rts
 
 ; ------------------------------------------------------------- palettes
+; Fond : 0 HUD, 1 ciel et hôtels (pêche $37), 2 mer et palmes, 3 sable
+; (jaune pâle $38, différent de la peau des sprites $37). Sprites : héros,
+; moustachu rose, menthe (et imprudents, motards), effets.
 pal_level1:
-	.byte $25,$30,$0F,$16, $25,$13,$27,$38, $25,$01,$21,$1A, $25,$37,$17,$16
+	.byte $25,$30,$0F,$16, $25,$13,$27,$37, $25,$01,$21,$1A, $25,$38,$17,$16
 	.byte $25,$37,$12,$0F, $25,$37,$35,$0F, $25,$37,$3A,$0F, $25,$16,$27,$30
+; Palette 1 des écrans : l'orange du ciel devient noir, pour que le soleil
+; du titre n'ait pas de halo carré (seul le titre utilise cette palette).
 pal_screens:
-	.byte $0F,$30,$0F,$16, $0F,$13,$27,$38, $0F,$01,$21,$1A, $0F,$28,$0F,$16
+	.byte $0F,$30,$0F,$16, $0F,$13,$0F,$38, $0F,$01,$21,$1A, $0F,$28,$0F,$16
+	.byte $0F,$37,$12,$0F, $0F,$37,$35,$0F, $0F,$37,$3A,$0F, $0F,$16,$27,$30
+; Écran titre (voir tools/gen_title.py) : textes, ciel/soleil/plage,
+; chrome et mer, néon « III » et MAXIMUM JUSTICE. Sprites comme en jeu.
+pal_title:
+	.byte $0F,$30,$0F,$10, $0F,$14,$27,$38, $0F,$01,$21,$30, $0F,$28,$0F,$15
 	.byte $0F,$37,$12,$0F, $0F,$37,$35,$0F, $0F,$37,$3A,$0F, $0F,$16,$27,$30

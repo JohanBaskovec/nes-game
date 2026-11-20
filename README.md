@@ -72,5 +72,9 @@ Le jeu reprend les codes d'un **genre** (le run'n'gun 8 bits de la fin des anné
 
 Tout le contenu est en texte dans `assets/` ; `make` reconvertit automatiquement :
 - `font.txt` : la police ; `sprites.txt` : tous les sprites (ASCII art) ;
-- `bg_beach.txt` : les métatuiles du décor ; `level1.txt` : la carte du niveau, écran par écran, avec les ennemis ;
+- `bg_beach.txt` : les métatuiles du décor ; `level1.txt` : la carte du niveau, écran par écran, avec les ennemis et les objets de décor ;
 - `textes.txt` : tous les textes (la variante Mode Famille est générée automatiquement).
+
+- `title.txt` : l'image de l'écran titre (logo, paysage), produite par `tools/gen_title.py`.
+
+`python3 tools/preview_level.py` dessine tout le niveau dans `build/level1_preview.png`, et `python3 tools/preview_sprites.py` tous les sprites dans `build/sprites_preview.png`, sans émulateur (nécessite `python3-pil`). Pratique pour vérifier les graphismes après une modification.

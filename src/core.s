@@ -45,6 +45,8 @@ reset:
 	lda #3
 	sta opt_lives
 	jsr audio_init
+	lda #CHR_LEVEL_HI
+	sta chr_r1
 	lda #1
 	sta render_off
 	lda #CTRL_BASE
@@ -86,7 +88,9 @@ mmc3_init:
 	sta MMC3_PRG_RAM       ; active la PRG-RAM en écriture
 	rts
 mmc3_init_banks:
-	.byte 0, 2, 4, 5, 6, 7  ; CHR : 2 Ko + 2 Ko de fond, 4 x 1 Ko de sprites
+	; CHR : police (2 Ko) + moitié haute du décor (2 Ko), 4 x 1 Ko de sprites.
+	; Sous le HUD, l'IRQ remplace la police par la moitié basse du décor.
+	.byte CHR_FONT, CHR_LEVEL_HI, 4, 5, 6, 7
 	.byte 0, 1              ; PRG : banque 0 en $8000, banque 1 en $A000
 
 ; ------------------------------------------------------------------- NMI
@@ -136,13 +140,7 @@ nmi:
 	lda #0
 	sta PPUSCROLL
 	sta PPUSCROLL
-	lda #CTRL_BASE
-	ora cur_nt
-	sta irq_ctrl
-	lda #IRQ_LINE
-	sta MMC3_IRQ_LATCH
-	sta MMC3_IRQ_RELOAD
-	sta MMC3_IRQ_ENABLE
+	jsr arm_split
 	jmp @mask
 @nosplit:
 	lda #CTRL_BASE
@@ -153,6 +151,9 @@ nmi:
 	lda #0
 	sta PPUSCROLL
 	sta MMC3_IRQ_DISABLE
+	sta MMC3_BANK_SELECT    ; écrans sans HUD : police + moitié haute du décor
+	lda #CHR_FONT
+	sta MMC3_BANK_DATA
 @mask:
 	lda #MASK_ON
 	sta PPUMASK
@@ -175,8 +176,33 @@ irq:
 	sta PPUCTRL
 	lda cur_x
 	sta PPUSCROLL
+	; Changement de banque R0 : en jeu, la moitié basse du décor remplace
+	; la police ; sur l'écran titre, la police remplace les tuiles du logo.
+	; Il tombe dans une rangée noire faite de tuiles unies identiques dans
+	; les deux banques : invisible. Après le démarrage, seuls la NMI, l'IRQ
+	; et ppu_on (juste après une NMI) écrivent dans $8000 : rien à restaurer.
+	lda #0
+	sta MMC3_BANK_SELECT
+	lda chr_bottom
+	sta MMC3_BANK_DATA
 	pla
 	rti
+
+; Prépare l'IRQ de cette image : banque chr_top en haut, puis à la ligne
+; split_line défilement du terrain et banque chr_bottom.
+arm_split:
+	lda #0
+	sta MMC3_BANK_SELECT
+	lda chr_top
+	sta MMC3_BANK_DATA
+	lda #CTRL_BASE
+	ora cur_nt
+	sta irq_ctrl
+	lda split_line
+	sta MMC3_IRQ_LATCH
+	sta MMC3_IRQ_RELOAD
+	sta MMC3_IRQ_ENABLE
+	rts
 
 ; Envoie les 32 couleurs de pal_buf (pendant le VBlank ou rendu coupé).
 upload_palette:
@@ -292,13 +318,22 @@ ppu_off:
 ppu_on:
 	jsr wait_nmi
 	bit PPUSTATUS
+	lda #1                  ; R1 : banque de l'écran (la NMI ne la touche pas)
+	sta MMC3_BANK_SELECT
+	lda chr_r1
+	sta MMC3_BANK_DATA
+	lda #0
+	sta MMC3_BANK_SELECT
+	lda #CHR_FONT
+	sta MMC3_BANK_DATA
 	lda #CTRL_BASE
 	ora cur_nt
 	sta PPUCTRL
 	lda cur_x
 	ldx hud_split
 	beq :+
-	lda #0
+	jsr arm_split           ; dès la première image, sinon le terrain
+	lda #0                  ; s'afficherait avec la police
 :
 	sta PPUSCROLL
 	lda #0

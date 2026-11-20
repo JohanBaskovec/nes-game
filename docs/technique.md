@@ -24,7 +24,7 @@ Ce document décrit le code tel qu'il existe. Les écarts avec la conception ini
 | Élément | Valeur actuelle | Extensible à |
 |---|---|---|
 | PRG-ROM | 128 Ko (16 banques de 8 Ko) | 512 Ko |
-| CHR-ROM | 32 Ko (seuls les 8 premiers Ko sont utilisés) | 256 Ko |
+| CHR-ROM | 32 Ko (14 Ko utilisés) | 256 Ko |
 | PRG-RAM | 8 Ko en $6000–$7FFF, sans pile | — |
 | Miroir | vertical (défilement horizontal) | réglable par logiciel |
 
@@ -46,12 +46,35 @@ Le MMC3 apporte :
 
 Au démarrage, seule la banque en $E000 est garantie par le MMC3. Le code de démarrage (`reset`, `mmc3_init`) est donc dans `FIXED` ; il configure le mode PRG 0 avant d'appeler quoi que ce soit en $C000.
 
-### 2.2 Organisation de la CHR (banque 0, 8 Ko)
+### 2.2 Organisation de la CHR
 
-| Fenêtre PPU | Contenu |
-|---|---|
-| $0000–$0FFF | Fond : $00–$03 tuiles unies, $20–$6B police (ASCII + accents + ♥ ©), $70–$FF décor du niveau et variantes tachées |
-| $1000–$1FFF | Sprites : 128 paires 8×16 (86 utilisées) |
+La police et le décor sont dans des banques séparées, pour que le décor dispose de 256 tuiles entières.
+
+| Adresse CHR | Banque MMC3 (unités de 1 Ko) | Contenu |
+|---|---|---|
+| $0000–$07FF | `CHR_FONT` = 0 | Police : $00–$03 tuiles unies, $20–$6B ASCII + accents + ♥ © |
+| $0800–$0FFF | `CHR_LEVEL_HI` = 2 | Décor, tuiles 128–255 (dont tout ce que montre l'écran titre) |
+| $1000–$1FFF | 4 à 7 | Sprites : 128 paires 8×16 (86 utilisées) |
+| $2000–$27FF | `CHR_LEVEL_LO` = 8 | Décor, tuiles 0–127 |
+| $2800–$2FFF | `CHR_TITLE_LO` = 10 | Écran titre, tuiles 0–127 |
+| $3000–$37FF | `CHR_TITLE_HI` = 12 | Écran titre, tuiles 128–255 |
+| $3800–$7FFF | — | Libre (niveaux suivants) |
+
+Fenêtres du PPU :
+
+| Fenêtre | Registre | Jeu : HUD / terrain | Titre : logo et paysage / textes | Autres écrans |
+|---|---|---|---|---|
+| $0000–$07FF | R0 | police / décor 0–127 | titre 0–127 / police | police |
+| $0800–$0FFF | R1 | décor 128–255 | titre 128–255 | (sans objet) |
+| $1000–$1FFF | R2–R5 | sprites | sprites | sprites |
+
+- L'écran de jeu et l'écran titre sont **découpés par l'IRQ MMC3** : la NMI met R0 sur `chr_top`, l'IRQ (à la ligne `split_line`) le passe sur `chr_bottom` (`arm_split` et `irq` dans `core.s`). Jeu : police puis décor, ligne 26. Titre : tuiles du titre puis police, ligne 160.
+- Le changement de banque tombe toujours dans une rangée noire faite de tuiles unies (0 à 3), identiques dans toutes les banques : la ligne exacte où il a lieu n'a donc aucune importance.
+- R1 change seulement d'un écran à l'autre : `ppu_on` l'écrit (variable `chr_r1`), juste après une NMI.
+- Seules la NMI, l'IRQ et `ppu_on` écrivent dans `$8000` après le démarrage : rien à sauvegarder ni à restaurer.
+- Écran titre : une image complète de 256×240 (`assets/title.txt`, produite par `tools/gen_title.py`), convertie en table de noms + attributs (`build/title.inc`, banque PRG 0). Le haut (rangées de tuiles 0 à 19) a ses 256 tuiles à lui (255 utilisées) ; les textes du bas sont écrits par le code avec la police.
+- Sprites : 86 paires 8×16 sur 128. Les personnages font 16×32 (quatre sprites), dessinés sur toute la largeur. La peau des sprites ($37) est différente du sable ($38) pour rester visible.
+- Budget actuel du décor : 241 tuiles sur 256 (taches comprises). Les métatuiles réutilisent les mêmes tuiles 8×8 autant que possible : le ciel est un dégradé tramé dont toutes les tuiles d'une même hauteur sont identiques, le sable se compose de deux tuiles, et un détail (coquillage, étoile de mer, crabe) tient dans une seule tuile.
 
 **Contrainte de l'IRQ MMC3** : le compteur de lignes compte les fronts montants de l'adresse A12 du PPU. Il faut donc le fond en $0000 et les sprites en $1000. En mode 8×16, le bit 0 du numéro de tuile choisit la table : **toutes les tuiles de sprites ont un numéro impair**. Le script de conversion s'en charge.
 
@@ -62,6 +85,7 @@ Au démarrage, seule la banque en $E000 est garantie par le MMC3. Le code de dé
 | **ca65 / ld65** (cc65) | Assemblage et édition de liens |
 | **GNU Make** | `make` produit `build/udc3.nes` |
 | **Python 3** (+ rien d'autre) | `tools/build_assets.py` : convertit les fichiers texte de `assets/` en CHR et en tables |
+| Python 3 + Pillow | `tools/preview_level.py` et `tools/preview_sprites.py` : aperçus PNG du niveau et de tous les sprites, sans émulateur (facultatif) |
 | **Node.js + jsnes** | `tools/emu/run.mjs` : banc de test sans écran (captures, mesures de cycles) |
 | FCEUX, Mesen 2… | Pour jouer |
 
@@ -86,7 +110,7 @@ src/            code assembleur (main.s inclut tous les modules)
   audio.s       bruitages et musique
   notes.inc     table des périodes NTSC
 assets/         sources texte : police, sprites, décor, niveau, textes
-tools/          build_assets.py, banc de test emu/
+tools/          build_assets.py, gen_bg_beach.py, gen_title.py, preview_level.py, preview_sprites.py, banc de test emu/
 cfg/mmc3.cfg    configuration de ld65
 build/          sorties (ROM, CHR, tables générées, symboles .lbl)
 ```
@@ -128,11 +152,13 @@ NMI :
   si nmi_ready : DMA OAM, palette (si modifiée), colonne de décor (si prête),
                  tampon VRAM, validation du défilement
   sinon        : trame en retard (compteur lag_count, doit rester à 0)
-  HUD : défilement (0,0) sur la table 0, armement de l'IRQ MMC3 (ligne 26)
+  écran découpé (jeu, titre) : défilement (0,0) sur la table 0, R0 = chr_top,
+  armement de l'IRQ MMC3 (ligne split_line : 26 en jeu, 160 sur le titre)
   son
 
-IRQ (ligne ~27, dans la rangée noire sous le HUD) :
+IRQ (dans une rangée noire : sous le HUD en jeu, rangée 20 sur le titre) :
   PPUCTRL (table de noms) + PPUSCROLL (x) du terrain
+  R0 = chr_bottom (jeu : décor 0-127 ; titre : police)
 ```
 
 Détails importants pour le matériel réel :
@@ -143,7 +169,8 @@ Détails importants pour le matériel réel :
 ## 6. Défilement et décor
 
 ### 6.1 Données du niveau
-- Métatuiles 16×16 (4 tuiles + palette + type de collision). 34 métatuiles pour la plage.
+- Métatuiles 16×16 (4 tuiles + palette + type de collision). 94 métatuiles pour Vice Beach.
+- Carte en texte (`assets/level1.txt`) : terrain par défaut de chaque rangée avec variantes (`a|b|c`, tirées au hasard mais toujours les mêmes) ou en séquence (`~nom`), et des tampons qui posent un objet de plusieurs cases à partir d'un seul caractère (soleil, palmier, parasol…).
 - Une colonne = 16 octets (13 métatuiles + 3 de remplissage), donc colonne `c` à `level1_map + c*16`. Le niveau 1 fait 192 colonnes (12 écrans).
 - Collisions : vide, solide, plateforme (traversable par dessous, Bas + A pour descendre), eau (mortelle).
 - Liste des apparitions triée par colonne : `[colonne, rangée, type]`.

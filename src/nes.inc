@@ -35,6 +35,12 @@ JOY2      = $4017
 ; MMC3
 MMC3_BANK_SELECT = $8000
 MMC3_BANK_DATA   = $8001
+; Banques CHR de 2 Ko (numéros en unités de 1 Ko, voir tools/build_assets.py)
+CHR_FONT     = 0           ; police, HUD et écrans de texte (tuiles 0-127)
+CHR_LEVEL_HI = 2           ; décor, tuiles 128-255 (aussi l'écran titre)
+CHR_LEVEL_LO = 8           ; décor, tuiles 0-127 (sous le HUD seulement)
+CHR_TITLE_LO = 10          ; écran titre, tuiles 0-127 (haut de l'écran)
+CHR_TITLE_HI = 12          ; écran titre, tuiles 128-255
 MMC3_MIRRORING   = $A000
 MMC3_PRG_RAM     = $A001
 MMC3_IRQ_LATCH   = $C000

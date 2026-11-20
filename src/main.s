@@ -18,6 +18,7 @@
 ; ------------------------------------------------- banque 0 : le niveau
 .segment "BANK00"
 .include "level1.inc"
+.include "title.inc"
 
 ; --------------------------------------------- banque fixe : tout le code
 .segment "RODATA"

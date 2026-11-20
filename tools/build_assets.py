@@ -2,12 +2,20 @@
 """Convertit les fichiers texte de assets/ en données NES.
 
 Sorties (dans build/) :
-  chr.bin        CHR-ROM (32 Ko)
+  chr.bin        CHR-ROM (32 Ko), organisée en banques MMC3 :
+                   $0000  police (128 tuiles)        -> R0 pour le HUD et les écrans de texte
+                   $0800  décor, tuiles 128-255      -> R1 (toujours)
+                   $1000  sprites (256 tuiles)       -> R2-R5
+                   $2000  décor, tuiles 0-127        -> R0 sous le HUD (IRQ)
+                   $2800  écran titre, tuiles 0-127  -> R0 en haut du titre
+                   $3000  écran titre, tuiles 128-255 -> R1 sur l'écran titre
+  title.inc      table de noms + attributs de l'écran titre (banque 0)
   assets.inc     tables pour la banque fixe : métasprites, métatuiles, textes
   level1.inc     données du niveau 1 (banque 0, $8000)
 """
 import os
 import random
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,7 +62,7 @@ def char_code(ch):
     return CHAR_CODES[ch]
 
 
-def build_font(bg):
+def build_font(fnt):
     lines = strip_comments(open(A("font.txt"), encoding="utf-8").readlines())
     i = 0
     glyphs = {}
@@ -85,7 +93,9 @@ def build_font(bg):
             for x in range(5):
                 if g[y][x] == "#":
                     px[y][x + 1] = 1
-        bg[code] = tile_bytes(px)
+        fnt[code] = tile_bytes(px)
+    for idx in range(4):
+        fnt[idx] = tile_bytes([[idx] * 8 for _ in range(8)])
     return glyphs
 
 
@@ -138,7 +148,7 @@ def parse_bg(path):
             if "bg" in at:
                 bgpx = byname[at["bg"]][4]
                 px = [[bgpx[y][x] if px[y][x] is None else px[y][x] for x in range(16)] for y in range(16)]
-            m = (name, pal, int(at.get("coll", 0)), at.get("stain", "0"), px)
+            m = (name, pal, int(at.get("coll", 0)), at.get("stain", "0"), px, at.get("hi") == "1")
             metas.append(m)
             byname[name] = m
         elif tok[0] == "@big":
@@ -161,7 +171,7 @@ def parse_bg(path):
                                 line.append(pals[pal].index(ch))
                         px.append(line)
                     nm = "%s_%d_%d" % (name, mx, my)
-                    m = (nm, pal, int(at.get("coll", 0)), at.get("stain", "0"), px)
+                    m = (nm, pal, int(at.get("coll", 0)), at.get("stain", "0"), px, at.get("hi") == "1")
                     metas.append(m)
                     byname[nm] = m
         else:
@@ -184,41 +194,53 @@ def splat(px, rng, amount):
 
 
 def build_bg(bg, metas):
-    """Remplit la table de motifs du fond à partir de $70. Retourne les tables."""
+    """Remplit la table de motifs du décor (256 tuiles, sans la police).
+
+    Les tuiles 0-3 sont unies (couleurs 0-3), comme dans la banque de la
+    police : la rangée noire sous le HUD reste identique quand l'IRQ change
+    de banque. Les métatuiles hi=1 (écran titre) sont placées dans les
+    tuiles 128-255, les autres d'abord dans 4-127.
+    """
     tiles = {}  # bytes -> index
     for idx in range(4):
         b = tile_bytes([[idx] * 8 for _ in range(8)])
         bg[idx] = b
         tiles[b] = idx
-    for code in range(0x20, 0x70):
-        if bg[code] is not None:
-            tiles.setdefault(bg[code], code)
-    nxt = [0x70]
+    nxt = {"lo": 4, "hi": 128}
 
-    def alloc(b):
+    def alloc(b, hi=False):
         if b in tiles:
-            return tiles[b]
-        if nxt[0] > 0xFF:
-            die("plus de place dans la table de motifs du fond")
-        t = nxt[0]
-        nxt[0] += 1
+            t = tiles[b]
+            if hi and 4 <= t < 128:
+                die("tuile partagée entre l'écran titre et la moitié basse")
+            return t
+        if not hi and nxt["lo"] < 128:
+            key = "lo"
+        else:
+            key = "hi"
+        if nxt[key] > (127 if key == "lo" else 255):
+            die("plus de place dans la table de motifs du décor")
+        t = nxt[key]
+        nxt[key] += 1
         bg[t] = b
         tiles[b] = t
         return t
 
-    mt = []
+    mt = [None] * len(metas)
     stain_src = {}  # index de tuile -> pixels
-    for name, pal, coll, stain, px in metas:
+    order = [i for i, m in enumerate(metas) if m[5]] + [i for i, m in enumerate(metas) if not m[5]]
+    for i in order:
+        name, pal, coll, stain, px, hi = metas[i]
         q = []
         for (ox, oy) in ((0, 0), (8, 0), (0, 8), (8, 8)):
             sub = [row[ox:ox + 8] for row in px[oy:oy + 8]]
-            t = alloc(tile_bytes(sub))
+            t = alloc(tile_bytes(sub), hi)
             q.append(t)
             if stain == "1" or (stain == "top" and oy == 0):
                 if pal != 3:
                     die("métatuile %s : seules les tuiles de palette 3 peuvent être tachées" % name)
                 stain_src[t] = sub
-        mt.append((name, q, pal, coll))
+        mt[i] = (name, q, pal, coll)
     stain_next = [0] * 256
     for t, sub in sorted(stain_src.items()):
         rng = random.Random(t * 7919)
@@ -229,8 +251,61 @@ def build_bg(bg, metas):
             if stain_next[prev] == 0 and s != prev:
                 stain_next[prev] = s
             prev = s
-    print("fond : %d tuiles utilisées sur 256, %d métatuiles" % (nxt[0], len(mt)))
+    used = nxt["lo"] + nxt["hi"] - 128
+    print("décor : %d tuiles utilisées sur 256 (basse %d/128, haute %d/128), %d métatuiles"
+          % (used, nxt["lo"], nxt["hi"] - 128, len(mt)))
     return mt, stain_next
+
+
+# ------------------------------------------------------------ écran titre
+TITLE_SPLIT_ROW = 20  # rangée de tuiles noire où l'IRQ remet la police
+
+
+def build_title(ttl):
+    """assets/title.txt -> 1024 octets (table de noms + attributs).
+
+    Haut de l'écran (rangées de tuiles 0-19) : 256 tuiles propres au titre,
+    ttl[0..127] en R0 et ttl[128..255] en R1. Les tuiles 0-3 sont unies,
+    comme dans la police. Bas (rangées 20-29) : vide, les textes sont écrits
+    par le code avec la police (l'IRQ remet R0 sur la police en rangée 20)."""
+    lines = strip_comments(open(A("title.txt"), encoding="utf-8").readlines())
+    i = lines.index("@attr")
+    attr = [[int(c) for c in lines[i + 1 + y]] for y in range(15)]
+    j = lines.index("@image")
+    img = [[".123".index(c) for c in lines[j + 1 + y]] for y in range(240)]
+    if any(len(r) != 256 for r in img) or any(len(r) != 16 for r in attr):
+        die("title.txt : image de 256x240 et attributs de 16x15 attendus")
+    if any(any(r) for r in img[TITLE_SPLIT_ROW * 8:]):
+        die("title.txt : les rangées de tuiles %d à 29 doivent rester vides" % TITLE_SPLIT_ROW)
+    tiles = {}
+    for k in range(4):
+        ttl[k] = tile_bytes([[k] * 8 for _ in range(8)])
+        tiles[ttl[k]] = k
+    nxt = [4]
+
+    def alloc(b):
+        if b in tiles:
+            return tiles[b]
+        if nxt[0] > 255:
+            die("écran titre : plus de 256 tuiles différentes dans le haut de l'écran")
+        ttl[nxt[0]] = b
+        tiles[b] = nxt[0]
+        nxt[0] += 1
+        return nxt[0] - 1
+
+    nt = []
+    for ty in range(30):
+        for tx in range(32):
+            if ty >= TITLE_SPLIT_ROW:
+                nt.append(0)
+            else:
+                nt.append(alloc(tile_bytes([row[tx * 8:tx * 8 + 8] for row in img[ty * 8:ty * 8 + 8]])))
+    at = [0] * 64
+    for y in range(15):
+        for x in range(16):
+            at[(y // 2) * 8 + x // 2] |= (attr[y][x] & 3) << (((y & 1) * 2 + (x & 1)) * 2)
+    print("titre : %d tuiles utilisées sur 256" % nxt[0])
+    return nt + at
 
 
 # ---------------------------------------------------------------- sprites
@@ -365,9 +440,27 @@ def parse_level(path, mt_index):
             i += 13
         else:
             die("level : directive inconnue %r" % l)
+    def row_default(y, col):
+        """Terrain par défaut ; « a|b|c » : variante pseudo-aléatoire fixe
+        selon la colonne (répéter un nom pour le rendre plus fréquent)."""
+        if rows_default[y].startswith("~"):
+            # « ~nom » : les métatuiles nom_0_0, nom_1_0... à la suite, en boucle
+            base = rows_default[y][1:]
+            n = 0
+            while "%s_%d_0" % (base, n) in mt_index:
+                n += 1
+            if n == 0:
+                die("level : aucune métatuile %s_N_0" % base)
+            return "%s_%d_0" % (base, col % n)
+        opts = rows_default[y].split("|")
+        if len(opts) == 1:
+            return opts[0]
+        return opts[random.Random(col * 131 + y * 7).randrange(len(opts))]
+
     width = 16 * len(screens)
     grid = [[None] * width for _ in range(13)]
     spawns = []
+    stamps = []
     for s, rows in enumerate(screens):
         for y in range(13):
             for x in range(16):
@@ -377,15 +470,31 @@ def parse_level(path, mt_index):
                     spawns.append((col, y, enemies[ch]))
                     grid[y][col] = "<"
                 elif ch == ".":
-                    grid[y][col] = rows_default[y]
+                    grid[y][col] = row_default(y, col)
+                elif ch in legend and legend[ch].startswith("@"):
+                    stamps.append(((col, y), legend[ch][1:]))
+                    grid[y][col] = row_default(y, col)
                 elif ch in legend:
-                    grid[y][col] = legend[ch]
+                    opts = legend[ch].split("|")
+                    grid[y][col] = opts[random.Random(col * 131 + y * 7).randrange(len(opts))]
                 else:
                     die("level : caractère inconnu %r (écran %d)" % (ch, s + 1))
     for y in range(13):
         for x in range(width):
             if grid[y][x] == "<":
-                grid[y][x] = grid[y][x - 1] if x > 0 else rows_default[y]
+                grid[y][x] = grid[y][x - 1] if x > 0 else row_default(y, x)
+    # tampons : « K @palm » pose palm_X_Y à partir de la case du K
+    for (x, y), base in stamps:
+        found = False
+        for name in mt_index:
+            m = re.match(re.escape(base) + r"_(\d+)_(\d+)$", name)
+            if m:
+                dx, dy = int(m.group(1)), int(m.group(2))
+                if y + dy < 13 and x + dx < width:
+                    grid[y + dy][x + dx] = name
+                found = True
+        if not found:
+            die("level : aucune métatuile %s_X_Y pour le tampon" % base)
     for y in range(13):
         for x in range(width):
             if grid[y][x] not in mt_index:
@@ -428,18 +537,28 @@ def asm_bytes(data, per_line=16):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    fnt = [None] * 128
+    ttl = [None] * 256
     bg = [None] * 256
     spr = [None] * 256
-    build_font(bg)
+    build_font(fnt)
+    title_nt = build_title(ttl)
     metas = parse_bg(A("bg_beach.txt"))
     mt, stain_next = build_bg(bg, metas)
     imgs, frames = parse_sprites(A("sprites.txt"))
     ms, consts = build_sprites(spr, imgs, frames)
 
     chr_data = bytearray(CHR_SIZE)
-    for i, b in enumerate(bg):
+    for i, b in enumerate(fnt):
         if b:
             chr_data[i * 16:(i + 1) * 16] = b
+    for i, b in enumerate(bg):
+        if b:
+            base = 0x2000 + i * 16 if i < 128 else 0x0800 + (i - 128) * 16
+            chr_data[base:base + 16] = b
+    for i, b in enumerate(ttl):
+        if b:
+            chr_data[0x2800 + i * 16:0x2800 + (i + 1) * 16] = b  # $2800-$37FF
     for i, b in enumerate(spr):
         if b:
             chr_data[0x1000 + i * 16:0x1000 + (i + 1) * 16] = b
@@ -504,6 +623,9 @@ def main():
         lo.append("\t.byte %d, %d, ENT_%s" % (col, row, kind))
     lo.append("\t.byte $FF")
     open(os.path.join(OUT, "level1.inc"), "w").write("\n".join(lo) + "\n")
+    to = ["; Fichier généré par tools/build_assets.py — ne pas modifier.", "",
+          "title_nt:", asm_bytes(title_nt)]
+    open(os.path.join(OUT, "title.inc"), "w").write("\n".join(to) + "\n")
     print("niveau 1 : %d colonnes, %d apparitions" % (width, len(spawns)))
 
 

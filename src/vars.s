@@ -19,6 +19,10 @@ scroll_nt:   .res 1
 cur_x:       .res 1    ; défilement validé (utilisé par la NMI)
 cur_nt:      .res 1
 irq_ctrl:    .res 1
+split_line:  .res 1    ; ligne de l'IRQ (découpage de l'écran)
+chr_top:     .res 1    ; banque CHR R0 au-dessus de la ligne de l'IRQ
+chr_bottom:  .res 1    ; banque CHR R0 en dessous
+chr_r1:      .res 1    ; banque CHR R1 de l'écran (réglée par ppu_on)
 pal_dirty:   .res 1
 col_pending: .res 1
 vbuf_len:    .res 1
@@ -149,6 +153,7 @@ continues:   .res 1
 opt_lives:   .res 1
 menu_sel:    .res 1
 text_step:   .res 1
+title_timer: .res 1
 text_timer:  .res 1
 
 ; balles du héros

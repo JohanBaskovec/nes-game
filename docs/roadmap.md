@@ -27,8 +27,9 @@ Chaque jalon produit une ROM `.nes` qui démarre dans un émulateur.
 - Moustachus lavande et pêche : pas encore faits.
 
 ## Jalon 5 — Niveau 1 jouable de bout en bout 🟡
-- ✅ Vice Beach : plage, promenade, hôtels, port (12 écrans).
-- ✅ Écran titre, options, briefing, HUD, bilan, game over et continues.
+- ✅ Vice Beach : plage, promenade, hôtels, port (12 écrans). Décor détaillé : ciel tramé avec étoiles et nuages, soleil rayé, immeubles à l'horizon, reflets et écume, palmiers, parasols, transats, flamants, panneau, hôtels avec enseigne néon, vedettes et lampadaires au port.
+- ✅ Écran titre (logo chromé, « III » au néon, coucher de soleil, héros sur la plage, ninja inexpliqué), options, briefing, HUD, bilan, game over et continues.
+- ✅ Personnages redessinés (16×32, pleine largeur).
 - ✅ Musique (titre, niveau, fin) et 11 bruitages.
 - ✅ Aucun ralentissement, mesuré (voir [technique.md](technique.md) §10).
 - ⬜ Boss : le Flamant Rose Blindé.

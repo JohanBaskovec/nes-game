@@ -40,6 +40,8 @@ screen_begin:
 	sta vbuf_len
 	sta vbuf
 	sta col_pending
+	lda #CHR_LEVEL_HI
+	sta chr_r1
 	lda #<pal_screens
 	sta ptr0
 	lda #>pal_screens
@@ -52,45 +54,6 @@ screen_end:
 	lda #0
 	sta hud_split
 	jmp ppu_on
-
-; Palette A pour la métatuile (X, Y) de l'écran (en unités de 16 px).
-set_attr:
-	and #3
-	sta tmp+0
-	tya
-	and #1
-	asl a
-	sta tmp+1
-	txa
-	and #1
-	ora tmp+1
-	asl a                   ; décalage = ((y&1)*2 + (x&1)) * 2
-	sta tmp+1
-	tya
-	lsr a
-	asl a
-	asl a
-	asl a
-	sta tmp+2
-	txa
-	lsr a
-	ora tmp+2
-	sta tmp+2               ; index de l'octet
-	lda #3
-	ldy tmp+1
-	beq :++
-:
-	asl a
-	asl tmp+0
-	dey
-	bne :-
-:
-	eor #$FF
-	ldx tmp+2
-	and attr_shadow,x
-	ora tmp+0
-	sta attr_shadow,x
-	rts
 
 write_attrs:
 	lda #$23
@@ -105,47 +68,6 @@ write_attrs:
 	cpx #64
 	bne :-
 	rts
-
-; Dessine la métatuile A en (X, Y) (unités de 16 px), rendu coupé.
-draw_mt:
-	sta tmp+3
-	stx tmp+4
-	sty tmp+5
-	tya
-	asl a
-	tay
-	txa
-	asl a
-	tax
-	jsr nt_addr_xy
-	lda tmp+7
-	sta PPUADDR
-	lda tmp+6
-	sta PPUADDR
-	ldy tmp+3
-	lda mt_tl,y
-	sta PPUDATA
-	lda mt_tr,y
-	sta PPUDATA
-	lda tmp+6
-	clc
-	adc #32
-	sta tmp+6
-	bcc :+
-	inc tmp+7
-:
-	lda tmp+7
-	sta PPUADDR
-	lda tmp+6
-	sta PPUADDR
-	lda mt_bl,y
-	sta PPUDATA
-	lda mt_br,y
-	sta PPUDATA
-	lda mt_pal,y
-	ldx tmp+4
-	ldy tmp+5
-	jmp set_attr
 
 ; Imprime une liste de textes : [id, x, y]..., $FF  (ptr1 = liste)
 print_list:
@@ -171,94 +93,119 @@ print_list:
 	rts
 
 ; ---------------------------------------------------------------- TITRE
+; Haut de l'écran (logo, paysage) : image complète (title_nt, générée depuis
+; assets/title.txt) avec ses deux banques de tuiles. À la rangée de tuiles 20,
+; noire, l'IRQ remet la police pour les textes du bas.
+TITLE_SPLIT = 160          ; ligne de l'IRQ (rangée de tuiles 20)
+TITLE_HERO_X = 56          ; le héros sur la plage
+TITLE_BEACH_Y = 157
+TITLE_NINJA_X = 196
+
 goto_title:
 	jsr screen_begin
+	lda #<pal_title
+	sta ptr0
+	lda #>pal_title
+	sta ptr0+1
+	jsr set_palette
+	jsr upload_palette
+	; table de noms 0 + attributs (1024 octets), copie des attributs
+	lda #$20
+	sta PPUADDR
+	lda #$00
+	sta PPUADDR
+	lda #<title_nt
+	sta ptr1
+	lda #>title_nt
+	sta ptr1+1
+	ldx #4
+	ldy #0
+:
+	lda (ptr1),y
+	sta PPUDATA
+	iny
+	bne :-
+	inc ptr1+1
+	dex
+	bne :-
+	ldx #63
+:
+	lda title_nt+960,x
+	sta attr_shadow,x
+	dex
+	bpl :-
 	lda #<title_texts
 	sta ptr1
 	lda #>title_texts
 	sta ptr1+1
 	jsr print_list
-	; « MAXIMUM JUSTICE » en jaune (palette 3), rangées 6-7
-	ldx #4
-:
-	stx tmp+6
-	lda #3
-	ldy #3
-	jsr set_attr
-	ldx tmp+6
-	inx
-	cpx #12
-	bne :-
-	; soleil et mer
-	lda #MT_SUN_0_0
-	ldx #7
-	ldy #4
-	jsr draw_mt
-	lda #MT_SUN_1_0
-	ldx #8
-	ldy #4
-	jsr draw_mt
-	lda #MT_SUN_0_1
-	ldx #7
-	ldy #5
-	jsr draw_mt
-	lda #MT_SUN_1_1
-	ldx #8
-	ldy #5
-	jsr draw_mt
-	ldx #0
-:
-	txa                     ; draw_mt écrase X : on le garde sur la pile
-	pha
-	lda #MT_SEATOP
-	ldy #6
-	jsr draw_mt
-	pla
-	tax
-	inx
-	cpx #16
-	bne :-
 	lda #0
 	sta menu_sel
+	sta title_timer
 	lda #ST_TITLE
 	sta state
 	lda #MUS_TITLE
 	jsr music_play
-	jmp screen_end
+	; découpage : banques du titre en haut, police en bas
+	lda #CHR_TITLE_LO
+	sta chr_top
+	lda #CHR_FONT
+	sta chr_bottom
+	lda #CHR_TITLE_HI
+	sta chr_r1
+	lda #TITLE_SPLIT
+	sta split_line
+	jsr write_attrs
+	lda #1
+	sta hud_split
+	jmp ppu_on
 
 title_texts:
-	.byte TXT_TITLE1, 6, 4
-	.byte TXT_TITLE2, 8, 6
-	.byte TXT_PRESS, 7, 16
-	.byte TXT_FIRMLY, 11, 17
-	.byte TXT_MENU_START, 12, 20
-	.byte TXT_MENU_OPTIONS, 12, 22
-	.byte TXT_COPY, 6, 26
+	.byte TXT_PRESS, 2, 21
+	.byte TXT_MENU_START, 12, 23
+	.byte TXT_MENU_OPTIONS, 12, 25
+	.byte TXT_COPY, 6, 27
 	.byte $FF
 
 title_update:
+	inc title_timer
 	jsr oam_clear
 	lda #0
 	sta oam_idx
 	sta oam_full
 	jsr menu_move2
+	; « APPUYEZ SUR START » clignote (une demi-seconde sur deux)
+	lda title_timer
+	and #31
+	bne @noblink
+	lda title_timer
+	and #32
+	beq :+
+	lda #TXT_BLANK
+	.byte $2C               ; bit abs : saute le lda suivant
+:
+	lda #TXT_PRESS
+	ldx #2
+	ldy #21
+	jsr vprint_at
+@noblink:
 	; curseur
 	lda #84
 	sta ms_xl
 	lda #0
 	sta ms_xh
+	sta ms_eor
 	lda menu_sel
 	asl a
 	asl a
 	asl a
 	asl a
 	clc
-	adc #160
+	adc #184
 	sta ms_y
-	lda #0
-	sta ms_eor
 	lda #SPR_CURSOR
 	jsr draw_one
+	jsr title_actors
 	lda pad_new
 	and #(BTN_START|BTN_A)
 	beq @r
@@ -271,6 +218,55 @@ title_update:
 	jmp goto_options
 @r:
 	rts
+
+; Le héros attend sur la plage. De temps en temps, un ninja apparaît dans
+; un nuage de fumée à l'autre bout, puis repart. Sans explication.
+title_actors:
+	lda #0
+	sta ms_xh
+	sta ms_eor
+	lda #TITLE_BEACH_Y
+	sta ms_y
+	lda #TITLE_HERO_X
+	sta ms_xl
+	lda #<ms_hero_fwd
+	ldx #>ms_hero_fwd
+	jsr title_ms
+	lda #<ms_legs_stand
+	ldx #>ms_legs_stand
+	jsr title_ms
+	; cycle de 256 images : 160-175 fumée, 176-239 ninja, 240-255 fumée
+	lda title_timer
+	cmp #160
+	bcc @r
+	ldx #TITLE_NINJA_X
+	stx ms_xl
+	ldx #$40                ; tourné vers le héros
+	stx ms_eor
+	cmp #176
+	bcc @smoke
+	cmp #240
+	bcs @smoke
+	lda #<ms_nin_run1
+	ldx #>ms_nin_run1
+	jmp title_ms
+@smoke:
+	and #4
+	bne :+
+	lda #<ms_smoke1
+	ldx #>ms_smoke1
+	jmp title_ms
+:
+	lda #<ms_smoke2
+	ldx #>ms_smoke2
+	jmp title_ms
+@r:
+	rts
+
+title_ms:
+	sta ptr0
+	stx ptr0+1
+	jmp draw_ms
 
 ; Haut/Bas entre deux entrées (menu_sel 0/1)
 menu_move2:
