@@ -180,53 +180,41 @@ ninja_spawner:
 	bpl :--
 	cpy #2
 	bcs @no
-	; x au hasard dans l'écran, loin du héros
+	; x au hasard dans l'écran, jamais à moins de NINJA_MIN_DIST du héros
+	lda p_xl
+	sec
+	sbc cam_xl
+	sta tmp+5               ; x écran du héros (0..255)
 	jsr rand
 	and #$7F
 	clc
 	adc #64
-	sta tmp+4               ; x écran 64..191
+	sta tmp+4               ; candidat : x écran 64..191
+	sec
+	sbc tmp+5
+	bcs :+
+	eor #$FF                ; |candidat - héros| (C = 0 ici)
+	adc #1
+:
+	cmp #NINJA_MIN_DIST
+	bcs @place
+	; trop près : on le met du côté où il y a le plus de place
+	lda tmp+5
+	cmp #128
+	bcs :+
+	adc #NINJA_MIN_DIST     ; héros à gauche (C = 0) -> 80..207
+	bcc @set
+:
+	sbc #NINJA_MIN_DIST     ; héros à droite (C = 1) -> 48..175
+@set:
+	sta tmp+4
+@place:
+	lda tmp+4
 	clc
 	adc cam_xl
 	sta tmp+0
 	lda cam_xh
 	adc #0
-	sta tmp+1
-	lda tmp+0
-	sec
-	sbc p_xl
-	lda tmp+1
-	sbc p_xh
-	bcc @left               ; ninja à gauche du héros
-	lda tmp+0
-	sec
-	sbc p_xl
-	cmp #48
-	bcs @ground
-	bcc @push
-@left:
-	lda p_xl
-	sec
-	sbc tmp+0
-	cmp #48
-	bcs @ground
-@push:
-	lda tmp+4
-	cmp #128
-	lda #64
-	bcc :+
-	lda #<-64
-:
-	sta tmp+5
-	clc
-	adc tmp+0
-	sta tmp+0
-	lda #0
-	bit tmp+5
-	bpl :+
-	lda #$FF
-:
-	adc tmp+1
 	sta tmp+1
 @ground:
 	; cherche un sol dans cette colonne
@@ -683,10 +671,13 @@ upd_menthe:
 	rts
 
 ; --- Ninja : fumée, (saut), lancer de shurikens, disparition
+NINJA_MIN_DIST = 80         ; distance minimale d'apparition (px)
+NINJA_SMOKE    = 32         ; durée de la fumée avant d'être dangereux
+
 init_ninja:
 	lda #0
 	sta e_vx,x
-	lda #16
+	lda #NINJA_SMOKE
 	sta e_timer,x
 	rts
 upd_ninja:
@@ -700,9 +691,9 @@ upd_ninja:
 	sta e_timer,x
 	jsr rand
 	bmi @r
-	; un ninja sur deux saute vers le héros
+	; un ninja sur deux saute vers le héros (1 px/image : il retombe
+	; à ~40 px du héros au lieu de lui atterrir dessus)
 	jsr face_player
-	asl a
 	sta e_vx,x
 	lda #<-$0380
 	sta e_vyl,x
@@ -729,9 +720,9 @@ upd_ninja:
 	dec e_timer,x
 	beq @vanish
 	lda e_timer,x
-	cmp #90
+	cmp #75                 ; premier lancer 45 images après la fumée
 	beq @throw
-	cmp #40
+	cmp #30
 	beq @throw
 	jmp contact_check
 @throw:
